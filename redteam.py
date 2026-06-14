@@ -165,6 +165,26 @@ def assess(all_findings):
 DEFAULT_MODEL = {"anthropic": "claude-opus-4-8", "nebius": "meta-llama/Llama-3.3-70B-Instruct"}
 
 
+def composio_notify(report, email):
+    """Deliver the report to a developer via Composio (Gmail) — 'inform the developers' is the point of a
+    boundary analyzer. Offline / no key: says what it would do, never silently drops it."""
+    key = os.environ.get("COMPOSIO_API_KEY")
+    if not key:
+        print(f"[notify] OFFLINE: would email the report to {email} (set COMPOSIO_API_KEY + connect Gmail).")
+        return
+    try:
+        from composio import Composio
+        c = Composio(api_key=key)
+        uid = os.environ.get("COMPOSIO_USER_ID", "plumbline")
+        c.tools.execute(slug="GMAIL_SEND_EMAIL", user_id=uid,
+                        arguments={"recipient_email": email,
+                                   "subject": "Plumbline — agent intent-boundary report",
+                                   "body": report[:9000]})
+        print(f"[notify] emailed the report to {email} via Composio.")
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] could not send via Composio: {e}")
+
+
 def main():
     global BACKEND, MODEL
     ap = argparse.ArgumentParser(description="Behavioral/intention red-teamer for AI agents.")
@@ -172,6 +192,8 @@ def main():
     ap.add_argument("--out", default="REDTEAM_REPORT.md")
     ap.add_argument("--backend", choices=["anthropic", "nebius"], default=BACKEND)
     ap.add_argument("--model", default=MODEL)
+    ap.add_argument("--notify-email", default="",
+                    help="email the report to a developer via Composio (needs COMPOSIO_API_KEY + connected Gmail)")
     args = ap.parse_args()
     BACKEND = args.backend
     MODEL = args.model or DEFAULT_MODEL[BACKEND]
@@ -200,6 +222,8 @@ def main():
               f"·  backend `{BACKEND}`  ·  model `{MODEL}`\n\n---\n\n")
     pathlib.Path(args.out).write_text(header + report, encoding="utf-8")
     print(f"\nDone — wrote {args.out}  ({n} probes across {len(DIMENSIONS)} dimensions)")
+    if args.notify_email:
+        composio_notify(header + report, args.notify_email)
 
 
 if __name__ == "__main__":
